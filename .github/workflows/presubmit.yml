@@ -21,7 +21,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # repository: ${{ github.repository }} (default)
           fetch-depth: 0
@@ -193,7 +193,7 @@ jobs:
         echo "CMAKE_CXXFLAGS=-Wall -Wextra -pedantic -Werror -m${{matrix.BIN}} -Wno-missing-field-initializers ${{ matrix.COMPILER.EXCLUSIVE_CXX_FLAGS }}" >> $GITHUB_ENV;
 
     - name: Checkout OpenCL-SDK
-      uses: actions/checkout@v4
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
           fetch-depth: 0
           submodules: recursive
@@ -426,16 +426,16 @@ jobs:
       EnforceProcessCountAcrossBuilds: 'true' # -=-
       MultiProcMaxCount: '3'                  # -=-
       WindowsSDKVersion: '10.0.22621.0'
-      INTEL_OCL_URL: https://github.com/intel/llvm/releases/download/2023-WW27/win-oclcpuexp-2023.16.6.0.28_rel.zip
-      INTEL_TBB_URL: https://github.com/oneapi-src/oneTBB/releases/download/v2021.10.0/oneapi-tbb-2021.10.0-win.zip
+      INTEL_OCL_URL: https://github.com/intel/llvm/releases/download/2025-WW13/win-oclcpuexp-2025.19.3.0.17_230222_rel.zip
+      INTEL_TBB_URL: https://github.com/uxlfoundation/oneTBB/releases/download/v2023.0.0/oneapi-tbb-2023.0.0-win.zip
       IMAGE_INTEL_PREFIX: C:\Tools\Intel
-      VULKAN_SDK_URL: https://sdk.lunarg.com/sdk/download/1.3.261.1/windows/VulkanSDK-1.3.261.1-Installer.exe
-      VULKAN_SDK: C:/VulkanSDK/1.3.261.1
+      VULKAN_SDK_URL: https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkansdk-windows-X64-1.4.350.0.exe
+      VULKAN_SDK: C:/VulkanSDK/1.4.350.0
 
     steps:
 
     - name: Install CMake & Ninja
-      uses: lukka/get-cmake@v3.26.4
+      uses: lukka/get-cmake@a234373d65f7cab3afb0390fbaba1f20a7510fdc # v3.26.4
 
     - name: Update Vcpkg
       if: matrix.DEPS == 'vcpkg'
@@ -467,21 +467,18 @@ jobs:
         Write-Output "CMAKE_CXXFLAGS=/W4 /EHsc" | Out-File $env:GITHUB_ENV -Append
 
     - name: Checkout OpenCL-SDK
-      uses: actions/checkout@v4
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         fetch-depth: 0
         submodules: recursive
 
     - name: Install samples dependencies
       run: |
-        Invoke-WebRequest ${env:VULKAN_SDK_URL} -OutFile vulkan-sdk-installer.exe
-        .\vulkan-sdk-installer.exe --accept-licenses --default-answer --confirm-command install com.lunarg.vulkan.32bit
-        Remove-Item vulkan-sdk-installer.exe
-        if ('${{ matrix.BIN }}' -eq 'x64')
-        {
+        if ('${{ matrix.BIN }}' -eq 'x64') {
+          Invoke-WebRequest ${env:VULKAN_SDK_URL} -OutFile vulkan-sdk-installer.exe
+          .\vulkan-sdk-installer.exe --accept-licenses --default-answer --confirm-command install
+          Remove-Item vulkan-sdk-installer.exe
           echo "Vulkan_LIB_DIR=$env:VULKAN_SDK/Lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        } else {
-          echo "Vulkan_LIB_DIR=$env:VULKAN_SDK/Lib32" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         }
 
     - name: Configure (MSBuild)
@@ -492,7 +489,13 @@ jobs:
         } else {
           $TOOLCHAIN_ARG=''
         }
-        $BIN = if('${{matrix.BIN}}' -eq 'x86') {'Win32'} else {'x64'}
+        if ('${{matrix.BIN}}' -eq 'x64') {
+          $BIN = 'x64'
+          $VULKAN_ARG = "-D OPENCL_SDK_BUILD_VULKAN_SAMPLES=ON -D Vulkan_INCLUDE_DIR=${env:VULKAN_SDK}/Include -D Vulkan_LIBRARY=${env:Vulkan_LIB_DIR}/vulkan-1.lib"
+        } else {
+          $BIN = 'Win32'
+          #VULKAN_ARG = ''
+        }
         & cmake `
           $TOOLCHAIN_ARG `
           -G "${{matrix.GEN}}" `
@@ -502,14 +505,12 @@ jobs:
           -D BUILD_TESTING=ON `
           -D OPENCL_SDK_BUILD_SAMPLES=ON `
           -D OPENCL_SDK_BUILD_OPENGL_SAMPLES=ON `
-          -D OPENCL_SDK_BUILD_VULKAN_SAMPLES=ON `
+          $VULKAN_ARG `
           -D CMAKE_C_STANDARD=${{matrix.STD.C}} `
           -D CMAKE_CXX_STANDARD=${{matrix.STD.CXX}} `
           -D CMAKE_C_FLAGS="${env:CMAKE_CFLAGS}" `
           -D CMAKE_CXX_FLAGS="${env:CMAKE_CXXFLAGS}" `
           -D CMAKE_INSTALL_PREFIX=${env:GITHUB_WORKSPACE}\install `
-          -D Vulkan_INCLUDE_DIR=${env:VULKAN_SDK}/Include `
-          -D Vulkan_LIBRARY=${env:Vulkan_LIB_DIR}/vulkan-1.lib `
           -S ${env:GITHUB_WORKSPACE} `
           -B ${env:GITHUB_WORKSPACE}\build
         if ($LASTEXITCODE -ne 0) { throw "Configuring OpenCL-SDK failed." }
@@ -521,6 +522,11 @@ jobs:
           $TOOLCHAIN_ARG="-D CMAKE_TOOLCHAIN_FILE=${env:VCPKG_INSTALLATION_ROOT}\scripts\buildsystems\vcpkg.cmake"
         } else {
           $TOOLCHAIN_ARG=''
+        }
+        if ('${{matrix.BIN}}' -eq 'x64') {
+          $VULKAN_ARG = "-D OPENCL_SDK_BUILD_VULKAN_SAMPLES=ON -D Vulkan_INCLUDE_DIR=${env:VULKAN_SDK}/Include -D Vulkan_LIBRARY=${env:Vulkan_LIB_DIR}/vulkan-1.lib"
+        } else {
+          #VULKAN_ARG = ''
         }
         $VER = switch ('${{matrix.VER}}') { `
           'v142' {'14.2'} `
@@ -535,15 +541,13 @@ jobs:
           -D BUILD_TESTING=ON `
           -D OPENCL_SDK_BUILD_SAMPLES=ON `
           -D OPENCL_SDK_BUILD_OPENGL_SAMPLES=ON `
-          -D OPENCL_SDK_BUILD_VULKAN_SAMPLES=ON `
+          $VULKAN_ARG `
           -D CMAKE_C_STANDARD=${{matrix.STD.C}} `
           -D CMAKE_CXX_STANDARD=${{matrix.STD.CXX}} `
           -D CMAKE_C_FLAGS="${env:CMAKE_CFLAGS}" `
           -D CMAKE_CXX_FLAGS="${env:CMAKE_CXXFLAGS}" `
           -D CMAKE_EXE_LINKER_FLAGS=/INCREMENTAL `
           -D CMAKE_INSTALL_PREFIX=${env:GITHUB_WORKSPACE}\install `
-          -D Vulkan_INCLUDE_DIR=${env:VULKAN_SDK}/Include `
-          -D Vulkan_LIBRARY=${env:Vulkan_LIB_DIR}/vulkan-1.lib `
           -S ${env:GITHUB_WORKSPACE} `
           -B ${env:GITHUB_WORKSPACE}\build
           if ($LASTEXITCODE -ne 0) { throw "Configuring OpenCL-SDK failed." }
@@ -686,7 +690,7 @@ jobs:
       CXX: /usr/bin/clang++
     steps:
     - name: Checkout OpenCL-SDK
-      uses: actions/checkout@v4
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
           fetch-depth: 0
           submodules: recursive
@@ -706,7 +710,7 @@ jobs:
       run: brew install tclap glm glew sfml mesa-glu
 
     - name: Install CMake & Ninja
-      uses: lukka/get-cmake@v3.26.4
+      uses: lukka/get-cmake@a234373d65f7cab3afb0390fbaba1f20a7510fdc # v3.26.4
 
     - name: Install Vcpkg
       if: matrix.DEPS == 'vcpkg'
@@ -805,7 +809,7 @@ jobs:
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Environment setup
         run: |
           MINIFORGE_INSTALL_DIR=.miniforge3
@@ -843,9 +847,9 @@ jobs:
     strategy:
       matrix:
         #os: [ubuntu-latest, macos-latest]
-        os: [ubuntu-latest, macos-13]
+        os: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           submodules: recursive
@@ -885,7 +889,7 @@ jobs:
       CXXFLAGS: -Wall -Wextra -pedantic -Werror -Wno-error=missing-field-initializers
     steps:
     - name: Checkout OpenCL-SDK
-      uses: actions/checkout@v4
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
           fetch-depth: 0
           submodules: recursive
@@ -915,7 +919,7 @@ jobs:
     needs: format
     steps:
     - name: Checkout OpenCL-SDK
-      uses: actions/checkout@v4
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
           fetch-depth: 0
           submodules: recursive
